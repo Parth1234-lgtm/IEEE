@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 accelerate==1.12.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.3
@@ -163,3 +164,8 @@ websockets==15.0.1
 widgetsnbextension==4.0.15
 yarl==1.22.0
 zipp==3.23.0
+=======
+fastapi
+uvicorn[standard]
+pydantic
+>>>>>>> ebef59c (Connect FastAPI backend and debug extension wiring)

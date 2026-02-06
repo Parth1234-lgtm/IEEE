@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <h1>Adaptive UI</h1>
+    <p class="subtitle">Attention-driven interface demo</p>
+
+    <!-- Toggle -->
+    <div class="toggle-row">
+      <span id="label-baseline" class="toggle-label active">Baseline</span>
+      <label class="switch">
+        <input type="checkbox" id="modeToggle">
+        <span class="slider"></span>
+      </label>
+      <span id="label-adaptive" class="toggle-label">Adaptive</span>
+    </div>
+
+    <!-- Status pill -->
+    <div id="statusPill" class="status-pill baseline">Baseline</div>
+
+    <!-- Explicit Input -->
+    <div class="explicit-input">
+      <h2>How does this page feel?</h2>
+      <div class="feedback-btn-row">
+        <button id="btnReadability" class="feedback-btn readability">Hard to read</button>
+        <button id="btnOverload" class="feedback-btn overload">Too much information</button>
+      </div>
+
+      <!-- Free-text + voice input -->
+      <div class="text-input-row">
+        <input type="text" id="textInput" class="text-input" placeholder="Describe your difficulty…" autocomplete="off">
+        <button id="btnApplyText" class="btn-apply" title="Apply">Go</button>
+        <button id="btnMic" class="btn-mic" title="Voice input">🎤</button>
+      </div>
+      <div id="textHint" class="text-hint" style="display:none"></div>
+    </div>
+
+    <!-- Warning banner (hidden by default) -->
+    <div id="popupWarning" class="popup-warning" style="display:none">
+      Open the demo page to apply adaptations.
+    </div>
+
+    <!-- Active State indicator -->
+    <div id="stateIndicator" class="state-indicator">
+      <span class="state-label">State:</span>
+      <span id="stateName" class="state-name">None</span>
+      <span id="stateSource" class="state-source"></span>
+    </div>
+
+    <!-- Live metrics -->
+    <div class="metrics">
+      <h2>Live Metrics</h2>
+      <div class="metric-grid">
+        <div class="metric-card">
+          <div class="metric-value" id="rereadPerMin">0.0</div>
+          <div class="metric-label">Re-reads / min</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="rereadTotal">0</div>
+          <div class="metric-label">Total re-reads</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="avgScroll">0</div>
+          <div class="metric-label">Avg scroll (px)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="elapsed">0s</div>
+          <div class="metric-label">Elapsed</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="zoomOsc">0</div>
+          <div class="metric-label">Zoom osc.</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="largeJumps">0</div>
+          <div class="metric-label">Large jumps</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="hint">Scroll &amp; read the demo page to generate signals.</p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,301 +1,136 @@
 /* ===================================================================
-   Content-script injected styles for adaptations
+   Attention-Adaptive UI extension surfaces (namespaced)
+   - Actual page adaptations are injected dynamically via a <style> tag
    =================================================================== */
 
-/* --- Dim periphery (shared by readability + overload) --- */
-.adapt--dimmed {
-  opacity: 0.25 !important;
-  transition: opacity 0.4s ease !important;
-  pointer-events: auto;
+:root {
+  --aau-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* ===================================================================
-   READABILITY state
-   =================================================================== */
-
-/* Font & line-height boost */
-[data-adapt-content].adapt--font-boost {
-  font-size: 1.28rem !important;
-  line-height: 1.9 !important;
-  transition: font-size 0.3s ease, line-height 0.3s ease;
-}
-
-/* High contrast text */
-[data-adapt-content].adapt--high-contrast {
-  color: #111 !important;
-}
-[data-adapt-content].adapt--high-contrast p {
-  color: #1a1a1a !important;
-}
-[data-adapt-content].adapt--high-contrast {
-  background-color: #fffdf7 !important;
-}
-
-/* Key sentence highlights */
-mark.adapt--highlight {
-  background: #fff3b0;
-  padding: 1px 3px;
-  border-radius: 2px;
-  color: inherit;
-}
-
-/* ===================================================================
-   OVERLOAD state
-   =================================================================== */
-
-/* Heading emphasis */
-.adapt--heading-emphasis {
-  font-size: 1.5rem !important;
-  background: #f0f4ff !important;
-  padding: 8px 12px !important;
-  border-radius: 4px !important;
-  margin-top: 24px !important;
-}
-
-/* Low density (increased spacing) */
-[data-adapt-content].adapt--low-density p {
-  margin-bottom: 22px !important;
-}
-
-/* Collapsed sections */
-.adapt--section-collapsed {
-  display: none;
-}
-
-.adapt--section-body {
-  transition: all 0.3s ease;
-}
-
-/* Section toggle link */
-.adapt--section-toggle {
-  display: inline-block;
-  cursor: pointer;
-  color: #1a73e8;
-  font-size: 0.9rem;
-  margin: 4px 0 8px;
-  text-decoration: none;
-  user-select: none;
-}
-.adapt--section-toggle:hover {
-  text-decoration: underline;
-}
-
-/* TL;DR block */
-[data-adapt-tldr] {
-  background: #fef7e0;
-  border-left: 4px solid #f0b429;
-  padding: 16px 20px;
-  border-radius: 6px;
-  margin-bottom: 20px;
-  font-size: 0.95rem;
-  line-height: 1.6;
-  color: #5a4b00;
-}
-[data-adapt-tldr] strong {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 1rem;
-  color: #3d3200;
-}
-[data-adapt-tldr] ul {
-  padding-left: 20px;
-  margin: 0;
-}
-[data-adapt-tldr] li {
-  margin-bottom: 6px;
-}
-
-/* ===================================================================
-   Floating Feedback Bar
-   =================================================================== */
-.adapt-feedback-bar {
+/* Floating suggestion UI (implicit mode) */
+.aau-suggest {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 99999;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483646;
+  width: 320px;
+  max-width: calc(100vw - 36px);
   background: #ffffff;
-  border: 1px solid #d0d7de;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  padding: 12px 14px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 13px;
-  min-width: 220px;
+  color: #111;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  font-family: var(--aau-font);
+  font-size: 12px;
 }
 
-.adapt-fb-header {
+.aau-suggest__header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.adapt-fb-title {
-  font-weight: 700;
+.aau-suggest__title {
+  font-weight: 800;
   font-size: 12px;
-  color: #24292f;
-  flex: 1;
+  letter-spacing: 0.2px;
 }
 
-.adapt-fb-state-pill {
+.aau-suggest__badge {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-.adapt-fb-pill-baseline {
-  background: #e8e8e8;
-  color: #555;
-}
-.adapt-fb-pill-readability {
-  background: #fff3b0;
-  color: #7a6400;
-}
-.adapt-fb-pill-overload {
-  background: #fce4e4;
-  color: #a33;
+  letter-spacing: 0.6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f2f6ff;
+  color: #1a73e8;
+  white-space: nowrap;
 }
 
-.adapt-fb-close {
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  color: #888;
-  padding: 0 4px;
-  line-height: 1;
+.aau-suggest__body {
+  padding: 10px 12px;
 }
-.adapt-fb-close:hover {
+
+.aau-suggest__list {
+  margin: 0;
+  padding-left: 18px;
   color: #333;
 }
 
-.adapt-fb-buttons {
+.aau-suggest__actions {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px 12px;
 }
 
-.adapt-fb-btn {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #f8f9fa;
-  font-size: 11px;
-  font-weight: 600;
+.aau-btn {
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: #f6f7f9;
+  color: #111;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-family: var(--aau-font);
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-.adapt-fb-btn:hover {
-  background: #e8e8e8;
-}
-
-.adapt-fb-readability {
-  color: #7a6400;
-  border-color: #e0d080;
-}
-.adapt-fb-readability:hover {
-  background: #fff3b0;
-}
-.adapt-fb-readability.adapt-fb-btn-active {
-  background: #fff3b0;
-  border-color: #c9a800;
-}
-
-.adapt-fb-overload {
-  color: #a33;
-  border-color: #e8a0a0;
-}
-.adapt-fb-overload:hover {
-  background: #fce4e4;
-}
-.adapt-fb-overload.adapt-fb-btn-active {
-  background: #fce4e4;
-  border-color: #c55;
-}
-
-.adapt-fb-baseline {
-  color: #555;
-  border-color: #ccc;
-}
-.adapt-fb-baseline:hover {
-  background: #e0e0e0;
-}
-
-/* --- Widget text + voice input --- */
-.adapt-fb-text-row {
-  display: flex;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.adapt-fb-text-input {
   flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid #d0d7de;
-  border-radius: 5px;
-  font-size: 11px;
-  font-family: inherit;
-  outline: none;
 }
-.adapt-fb-text-input:focus {
-  border-color: #1a73e8;
-}
+.aau-btn:hover { background: #eef0f4; }
 
-.adapt-fb-btn-go {
-  padding: 0 8px;
+.aau-btn--primary {
   background: #1a73e8;
   color: #fff;
-  border: none;
-  border-radius: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
+  border-color: #1a73e8;
 }
-.adapt-fb-btn-go:hover {
-  background: #1557b0;
-}
+.aau-btn--primary:hover { background: #1557b0; }
 
-.adapt-fb-btn-mic {
-  width: 28px;
-  background: #f0f0f0;
-  border: 1px solid #d0d7de;
-  border-radius: 5px;
+/* Content actions panel (summary/audio/flashcards) */
+.aau-content {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 2147483645;
+  width: 360px;
+  max-width: calc(100vw - 36px);
+  max-height: 45vh;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.98);
+  color: #111;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  font-family: var(--aau-font);
   font-size: 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.adapt-fb-btn-mic:hover {
-  background: #e0e0e0;
-}
-.adapt-fb-btn-mic.adapt-fb-mic-listening {
-  background: #fce4e4;
-  border-color: #c55;
-  animation: adapt-pulse-mic 1s infinite;
-}
-.adapt-fb-btn-mic.adapt-fb-mic-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  padding: 10px 12px;
 }
 
-@keyframes adapt-pulse-mic {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(204, 85, 85, 0.3); }
-  50% { box-shadow: 0 0 0 3px rgba(204, 85, 85, 0.15); }
+.aau-content__section {
+  margin-bottom: 10px;
 }
 
-.adapt-fb-status {
+.aau-content__label {
   font-size: 10px;
-  color: #888;
-  margin-top: 6px;
-  padding: 4px 6px;
-  background: #fef7e0;
-  border: 1px solid #e0d080;
-  border-radius: 4px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.aau-content__summary {
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.aau-content img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }

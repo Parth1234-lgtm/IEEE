@@ -1,373 +1,361 @@
 /* ===================================================================
-   Popup Script
-   - Toggle baseline / adaptive mode
-   - Explicit feedback buttons (Hard to read / Too much info)
-   - State indicator display
-   - Poll live metrics from storage and update UI
+   Popup Script (schemas.py-aligned)
+   - Sends explicit RequestSchema via fetch to http://127.0.0.1:8000/process
+   - Supports user_text, user_audio (.wav base64), and selected page text
+   - Explicit responses are applied immediately on the active tab
+   - Shows currently applied adaptations and provides Reset
    =================================================================== */
 
-const toggle = document.getElementById("modeToggle");
-const labelBaseline = document.getElementById("label-baseline");
-const labelAdaptive = document.getElementById("label-adaptive");
-const statusPill = document.getElementById("statusPill");
+const BACKEND_URL = "http://127.0.0.1:8000/process";
 
-// Explicit input buttons
-const btnReadability = document.getElementById("btnReadability");
-const btnOverload = document.getElementById("btnOverload");
+const elUserText = document.getElementById("userText");
+const btnGetSelection = document.getElementById("btnGetSelection");
+const btnClearSelection = document.getElementById("btnClearSelection");
+const elSelectionPreview = document.getElementById("selectionPreview");
 
-// State indicator
-const elStateName = document.getElementById("stateName");
-const elStateSource = document.getElementById("stateSource");
+const btnRecord = document.getElementById("btnRecord");
+const btnClearAudio = document.getElementById("btnClearAudio");
+const elAudioStatus = document.getElementById("audioStatus");
 
-// Warning banner
-const elWarning = document.getElementById("popupWarning");
+const btnSendExplicit = document.getElementById("btnSendExplicit");
+const btnReset = document.getElementById("btnReset");
+const btnRefreshApplied = document.getElementById("btnRefreshApplied");
 
-// Metric elements
-const elRereadPerMin = document.getElementById("rereadPerMin");
-const elRereadTotal = document.getElementById("rereadTotal");
-const elAvgScroll = document.getElementById("avgScroll");
-const elElapsed = document.getElementById("elapsed");
-const elZoomOsc = document.getElementById("zoomOsc");
-const elLargeJumps = document.getElementById("largeJumps");
+const elAppliedUi = document.getElementById("appliedUi");
+const elAppliedContent = document.getElementById("appliedContent");
+const elStatus = document.getElementById("status");
 
-/* ---------------------------------------------------------------
-   Helper: send STATE_CHANGED directly to the active tab.
-   This is the critical fallback — the background broadcast
-   (chrome.tabs.query → sendMessage to all) silently fails on
-   file:// tabs, stale tabs, or when the service-worker is mid-
-   sleep.  Sending from the popup uses the activeTab permission
-   granted by the user opening the popup.
---------------------------------------------------------------- */
-function notifyActiveTab(mode, userState, stateSource) {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (chrome.runtime.lastError) {
-      console.warn("[popup] tabs.query error:", chrome.runtime.lastError.message);
-      return;
-    }
-    const tab = tabs && tabs[0];
-    if (!tab) return;
-    console.log(`[popup] Direct-sending STATE_CHANGED to tab ${tab.id}`);
-    chrome.tabs.sendMessage(tab.id, {
-      type: "STATE_CHANGED",
-      mode,
-      userState,
-      stateSource
-    }).catch((err) => {
-      console.warn("[popup] Active tab unreachable:", err.message || err);
+let selectionText = "";
+let audioBase64 = "";
+
+function showStatus(msg) {
+  elStatus.textContent = msg;
+  elStatus.style.display = "block";
+}
+function clearStatus() {
+  elStatus.style.display = "none";
+  elStatus.textContent = "";
+}
+
+function getActiveTab() {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+      const tab = tabs && tabs[0];
+      if (!tab || typeof tab.id !== "number") return reject(new Error("No active tab"));
+      resolve(tab);
     });
   });
 }
 
-/* ---------------------------------------------------------------
-   Init: read current state
---------------------------------------------------------------- */
-chrome.runtime.sendMessage({ type: "GET_STATE" }, (res) => {
-  if (chrome.runtime.lastError) {
-    console.warn("[popup] GET_STATE error:", chrome.runtime.lastError.message);
-  }
-  if (res) {
-    if (res.mode === "adaptive") {
-      toggle.checked = true;
-      updateLabels("adaptive");
-    } else {
-      toggle.checked = false;
-      updateLabels("baseline");
-    }
-    updateStateIndicator(res.userState, res.stateSource);
-  }
-});
-
-/* ---------------------------------------------------------------
-   Toggle handler
---------------------------------------------------------------- */
-toggle.addEventListener("change", () => {
-  const newMode = toggle.checked ? "adaptive" : "baseline";
-  console.log(`[popup] Toggle → ${newMode}`);
-  chrome.runtime.sendMessage({ type: "SET_MODE", mode: newMode }, (res) => {
-    if (chrome.runtime.lastError) {
-      console.warn("[popup] SET_MODE error:", chrome.runtime.lastError.message);
-    }
-    if (res && res.ok) {
-      updateLabels(newMode);
-      if (newMode === "baseline") {
-        updateStateIndicator(null, null);
-      }
-    }
-    // Direct fallback: tell the active tab about the mode change
-    notifyActiveTab(newMode, newMode === "baseline" ? null : undefined, null);
-  });
-});
-
-/* ---------------------------------------------------------------
-   Explicit feedback button handlers
-   Strategy: fire 3 independent actions on click — no chaining.
-     1. Update popup UI immediately (never wait for background).
-     2. Write to chrome.storage.local so pollMetrics stays in sync.
-     3. Send APPLY_STATE directly to the active tab's content script.
-   Background SET_USER_STATE is fire-and-forget for bookkeeping.
---------------------------------------------------------------- */
-function triggerExplicitState(state) {
-  const source = "explicit";
-  const label = state === "readability" ? "Hard to read" : "Too much info";
-  console.log(`[popup] ========== Button: ${label} ==========`);
-  hideWarning();
-
-  // --- 1. Popup UI: update immediately, never wait ---
-  toggle.checked = true;
-  updateLabels("adaptive");
-  updateStateIndicator(state, source);
-  console.log(`[popup] (1/3) Popup UI updated → ${state} (${source})`);
-
-  // --- 2. Storage: write directly so pollMetrics reads correct values ---
-  chrome.storage.local.set(
-    { mode: "adaptive", userState: state, stateSource: source },
-    () => {
-      if (chrome.runtime.lastError) {
-        console.warn("[popup] (2/3) Storage write error:", chrome.runtime.lastError.message);
-      } else {
-        console.log(`[popup] (2/3) Storage written: mode=adaptive, userState=${state}`);
-      }
-    }
-  );
-
-  // --- 3. Direct-send APPLY_STATE to the active tab ---
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (chrome.runtime.lastError) {
-      console.warn("[popup] (3/3) tabs.query error:", chrome.runtime.lastError.message);
-      return;
-    }
-    const tab = tabs && tabs[0];
-    if (!tab) {
-      console.warn("[popup] (3/3) No active tab found");
-      return;
-    }
-    console.log(`[popup] (3/3) Sending APPLY_STATE_NOW → tab ${tab.id}`);
-    chrome.tabs.sendMessage(tab.id, {
-      type: "APPLY_STATE_NOW",
-      state: state,
-      source: source
-    }).then((response) => {
-      if (response && response.ok) {
-        console.log(`[popup] (3/3) Tab ${tab.id} applied "${state}"`);
-        hideWarning();
-      } else {
-        const reason = (response && response.error) || "unknown";
-        console.warn(`[popup] (3/3) Tab ${tab.id} rejected: ${reason}`);
-        showWarning("Switch to the demo page tab and try again.");
-      }
-    }).catch((err) => {
-      console.warn(`[popup] (3/3) Tab ${tab.id} FAILED:`, err.message || err);
-      showWarning("Open the demo page to apply adaptations.");
+function sendToTab(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (resp) => {
+      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+      resolve(resp);
     });
   });
+}
 
-  // --- Fire-and-forget: tell background for its bookkeeping ---
-  chrome.runtime.sendMessage(
-    { type: "SET_USER_STATE", state, source },
-    (res) => {
-      if (chrome.runtime.lastError) {
-        console.warn("[popup] Background SET_USER_STATE error:", chrome.runtime.lastError.message);
-      } else {
-        console.log("[popup] Background ack SET_USER_STATE:", JSON.stringify(res));
+async function getSelectionFromActiveTab() {
+  const tab = await getActiveTab();
+  const results = await new Promise((resolve, reject) => {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId: tab.id },
+        func: () => (window.getSelection ? String(window.getSelection() || "").toString() : "").trim()
+      },
+      (res) => {
+        if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+        resolve(res);
       }
-    }
-  );
+    );
+  });
+  const text = (results && results[0] && results[0].result) ? String(results[0].result) : "";
+  return { tabId: tab.id, text };
 }
 
-btnReadability.addEventListener("click", () => triggerExplicitState("readability"));
-btnOverload.addEventListener("click", () => triggerExplicitState("overload"));
+function renderSelectionPreview() {
+  if (!selectionText) {
+    elSelectionPreview.textContent = "No selection captured.";
+    elSelectionPreview.classList.add("muted");
+    return;
+  }
+  elSelectionPreview.textContent = selectionText.length > 500 ? (selectionText.slice(0, 500) + "…") : selectionText;
+  elSelectionPreview.classList.remove("muted");
+}
+
+function renderAudioStatus() {
+  if (!audioBase64) {
+    elAudioStatus.textContent = "No audio recorded.";
+    elAudioStatus.classList.add("muted");
+    return;
+  }
+  elAudioStatus.textContent = `Audio ready (${Math.round(audioBase64.length / 4)} bytes base64)`;
+  elAudioStatus.classList.remove("muted");
+}
+
+function renderApplied(applied) {
+  const ui = (applied && applied.ui_actions) ? applied.ui_actions : {};
+  const ca = (applied && applied.content_actions) ? applied.content_actions : {};
+
+  const uiLines = [];
+  if (typeof ui.font_scale === "number") uiLines.push(`font_scale: ${ui.font_scale}`);
+  if (typeof ui.line_spacing === "number") uiLines.push(`line_spacing: ${ui.line_spacing}`);
+  if (ui.contrast) uiLines.push(`contrast: ${ui.contrast}`);
+  if (ui.simplify_layout === true) uiLines.push("simplify_layout: true");
+  if (ui.hide_distractions === true) uiLines.push("hide_distractions: true");
+  if (ui.highlight_focus === true) uiLines.push("highlight_focus: true");
+  elAppliedUi.textContent = uiLines.length ? uiLines.join("\n") : "No UI adaptations applied.";
+
+  const caLines = [];
+  if (ca.summary && ca.summary.enabled === true) caLines.push("summary: enabled");
+  if (ca.audio && ca.audio.enabled === true) caLines.push("audio: enabled");
+  if (ca.flashcards && ca.flashcards.enabled === true) caLines.push("flashcards: enabled");
+  elAppliedContent.textContent = caLines.length ? caLines.join("\n") : "No content actions applied.";
+}
+
+async function refreshApplied() {
+  try {
+    const tab = await getActiveTab();
+    const resp = await sendToTab(tab.id, { type: "GET_APPLIED" });
+    if (resp && resp.ok) renderApplied(resp.applied);
+  } catch (err) {
+    renderApplied(null);
+  }
+}
+
+async function postProcess(requestBody) {
+  const res = await fetch(BACKEND_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody)
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Backend error ${res.status}: ${txt || res.statusText}`);
+  }
+  return await res.json();
+}
 
 /* ---------------------------------------------------------------
-   Free-text input: keyword-based routing → readability | overload
+   WAV recording (base64)
 --------------------------------------------------------------- */
-const textInput = document.getElementById("textInput");
-const btnApplyText = document.getElementById("btnApplyText");
-const btnMic = document.getElementById("btnMic");
-const textHint = document.getElementById("textHint");
+class WavRecorder {
+  constructor() {
+    this.audioContext = null;
+    this.stream = null;
+    this.source = null;
+    this.processor = null;
+    this.samples = [];
+    this.sampleRate = 44100;
+    this.recording = false;
+  }
 
-function handleTextSubmit() {
-  const raw = textInput.value.trim();
-  if (!raw) return;
-  hideTextHint();
+  async start() {
+    if (this.recording) return;
+    this.samples = [];
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    this.sampleRate = this.audioContext.sampleRate || 44100;
+    this.source = this.audioContext.createMediaStreamSource(this.stream);
+    // ScriptProcessorNode is deprecated but still supported in Chrome extension pages.
+    this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      this.samples.push(new Float32Array(input));
+    };
+    this.source.connect(this.processor);
+    this.processor.connect(this.audioContext.destination);
+    this.recording = true;
+  }
 
-  chrome.runtime.sendMessage({ type: "MAP_TEXT_TO_STATE", text: raw }, (res) => {
-    if (chrome.runtime.lastError) {
-      showTextHint("Try: \"Hard to read\" or \"Too much info\"");
-      return;
+  async stop() {
+    if (!this.recording) return "";
+    this.recording = false;
+
+    try { this.processor && this.processor.disconnect(); } catch (_) {}
+    try { this.source && this.source.disconnect(); } catch (_) {}
+    try { this.stream && this.stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    try { this.audioContext && this.audioContext.close(); } catch (_) {}
+    if (this.samples.length === 0) {
+    return "";
     }
-    const state = res && res.state;
-    if (state) {
-      triggerExplicitState(state);
-      textInput.value = "";
+    const wav = encodeWav(this.samples, this.sampleRate);
+    return arrayBufferToBase64(wav);
+  }
+}
+
+function encodeWav(chunks, sampleRate) {
+  const samples = flattenFloat32(chunks);
+  const pcm16 = floatTo16BitPCM(samples);
+
+  const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+  const view = new DataView(buffer);
+
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + pcm16.length * 2, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true); // PCM
+  view.setUint16(20, 1, true);  // audio format
+  view.setUint16(22, 1, true);  // channels
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate (sampleRate * blockAlign)
+  view.setUint16(32, 2, true);  // block align (channels * bytesPerSample)
+  view.setUint16(34, 16, true); // bits per sample
+  writeAscii(view, 36, "data");
+  view.setUint32(40, pcm16.length * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < pcm16.length; i++, offset += 2) {
+    view.setInt16(offset, pcm16[i], true);
+  }
+  return buffer;
+}
+
+function writeAscii(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+function flattenFloat32(chunks) {
+  const total = chunks.reduce((sum, a) => sum + a.length, 0);
+  const out = new Float32Array(total);
+  let pos = 0;
+  for (const c of chunks) {
+    out.set(c, pos);
+    pos += c.length;
+  }
+  return out;
+}
+
+function floatTo16BitPCM(float32) {
+  const out = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+}
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  // chunk to avoid call stack issues
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const sub = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, sub);
+  }
+  return btoa(binary);
+}
+
+const recorder = new WavRecorder();
+
+async function toggleRecord() {
+  clearStatus();
+  try {
+    if (!recorder.recording) {
+      await recorder.start();
+      btnRecord.textContent = "Stop recording";
+      showStatus("Recording…");
     } else {
-      showTextHint("Try: \"Hard to read\" or \"Too much info\"");
+      audioBase64 = await recorder.stop();
+      btnRecord.textContent = "Record audio";
+      renderAudioStatus();
+      showStatus(audioBase64 ? "Audio recorded." : "No audio captured.");
     }
-  });
-}
-
-btnApplyText.addEventListener("click", handleTextSubmit);
-textInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") handleTextSubmit();
-});
-
-function showTextHint(msg) {
-  textHint.textContent = msg;
-  textHint.style.display = "block";
-}
-function hideTextHint() {
-  textHint.style.display = "none";
+  } catch (err) {
+    btnRecord.textContent = "Record audio";
+    showStatus(`Recording error: ${err && err.message ? err.message : err}`);
+  }
 }
 
 /* ---------------------------------------------------------------
-   Voice input: Web Speech API
+   UI handlers
 --------------------------------------------------------------- */
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
-let isListening = false;
-
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-
-  recognition.addEventListener("result", (event) => {
-    const transcript = event.results[0][0].transcript;
-    textInput.value = transcript;
-    stopListening();
-    // Auto-submit after voice
-    handleTextSubmit();
-  });
-
-  recognition.addEventListener("error", (event) => {
-    console.warn("[popup] Speech error:", event.error);
-    stopListening();
-    if (event.error === "not-allowed") {
-      showTextHint("Microphone access denied.");
-    }
-  });
-
-  recognition.addEventListener("end", () => {
-    stopListening();
-  });
-} else {
-  // Browser doesn't support speech recognition
-  btnMic.classList.add("disabled");
-  btnMic.title = "Voice input not supported in this browser";
-}
-
-btnMic.addEventListener("click", () => {
-  if (!recognition) return;
-  if (isListening) {
-    recognition.abort();
-    stopListening();
-  } else {
-    startListening();
+btnGetSelection.addEventListener("click", async () => {
+  clearStatus();
+  try {
+    const { text } = await getSelectionFromActiveTab();
+    selectionText = text || "";
+    renderSelectionPreview();
+    showStatus(selectionText ? "Selection captured." : "No selection found on page.");
+  } catch (err) {
+    showStatus(`Selection error: ${err && err.message ? err.message : err}`);
   }
 });
 
-function startListening() {
-  if (!recognition) return;
-  isListening = true;
-  btnMic.classList.add("listening");
-  btnMic.textContent = "…";
-  hideTextHint();
-  textInput.placeholder = "Listening…";
-  recognition.start();
-}
+btnClearSelection.addEventListener("click", () => {
+  selectionText = "";
+  renderSelectionPreview();
+  clearStatus();
+});
 
-function stopListening() {
-  isListening = false;
-  btnMic.classList.remove("listening");
-  btnMic.textContent = "🎤";
-  textInput.placeholder = "Describe your difficulty…";
-}
+btnRecord.addEventListener("click", toggleRecord);
 
-/* ---------------------------------------------------------------
-   UI update helpers
---------------------------------------------------------------- */
-function updateLabels(mode) {
-  if (mode === "adaptive") {
-    labelBaseline.classList.remove("active");
-    labelAdaptive.classList.add("active");
-    statusPill.textContent = "Adaptive";
-    statusPill.className = "status-pill adaptive";
-  } else {
-    labelAdaptive.classList.remove("active");
-    labelBaseline.classList.add("active");
-    statusPill.textContent = "Baseline";
-    statusPill.className = "status-pill baseline";
+btnClearAudio.addEventListener("click", () => {
+  audioBase64 = "";
+  renderAudioStatus();
+  clearStatus();
+});
+
+btnReset.addEventListener("click", async () => {
+  clearStatus();
+  try {
+    const tab = await getActiveTab();
+    await sendToTab(tab.id, { type: "RESET_ADAPTATIONS" });
+    showStatus("Reset applied.");
+    await refreshApplied();
+  } catch (err) {
+    showStatus(`Reset error: ${err && err.message ? err.message : err}`);
   }
-}
+});
 
-function updateStateIndicator(userState, stateSource) {
-  if (!userState) {
-    elStateName.textContent = "None";
-    elStateName.className = "state-name";
-    elStateSource.textContent = "";
-    // Clear button highlights
-    btnReadability.classList.remove("active");
-    btnOverload.classList.remove("active");
-  } else {
-    elStateName.textContent = userState === "readability" ? "Readability" : "Overload";
-    elStateName.className = `state-name state-${userState}`;
-    elStateSource.textContent = stateSource ? `(${stateSource})` : "";
-    // Highlight active button
-    btnReadability.classList.toggle("active", userState === "readability");
-    btnOverload.classList.toggle("active", userState === "overload");
+btnRefreshApplied.addEventListener("click", refreshApplied);
+
+btnSendExplicit.addEventListener("click", async () => {
+  clearStatus();
+  const userText = (elUserText.value || "").trim();
+
+  // Build RequestSchema strictly (schemas.py)
+  const payload = {};
+  if (userText) payload.user_text = userText;
+  if (audioBase64 && audioBase64.length > 1000) {
+  payload.user_audio = {
+    base64: audioBase64,
+    format: "wav"
+  };
+}
+  
+  if (selectionText) payload.page_text = { content: selectionText };
+
+  if (!payload.user_text && !payload.user_audio && !payload.page_text) {
+    showStatus("Add text, record audio, or capture a selection first.");
+    return;
   }
-}
 
-function showWarning(msg) {
-  if (elWarning) {
-    elWarning.textContent = msg;
-    elWarning.style.display = "block";
+  const requestBody = {
+    request_type: "explicit",
+    payload
+  };
+
+  try {
+    const tab = await getActiveTab();
+    const response = await postProcess(requestBody);
+
+    // Explicit must always result in apply; enforce client-side too.
+    response.mode = "apply";
+
+    await sendToTab(tab.id, { type: "APPLY_ACTIONS", response });
+    showStatus("Applied.");
+    await refreshApplied();
+  } catch (err) {
+    showStatus(`Send error: ${err && err.message ? err.message : err}`);
   }
-}
+});
 
-function hideWarning() {
-  if (elWarning) elWarning.style.display = "none";
-}
-
-/* ---------------------------------------------------------------
-   Live metric polling (every 600ms)
---------------------------------------------------------------- */
-function pollMetrics() {
-  chrome.storage.local.get(["liveMetrics", "userState", "stateSource", "mode"], (res) => {
-    if (chrome.runtime.lastError) return;
-    const m = res.liveMetrics;
-    if (m) {
-      elRereadPerMin.textContent = m.rereadPerMin ?? "0.0";
-      elRereadTotal.textContent = m.rereadTotal ?? 0;
-      elAvgScroll.textContent = m.avgScrollPx ?? 0;
-      elElapsed.textContent = formatElapsed(m.elapsedSec ?? 0);
-      elZoomOsc.textContent = m.zoomOscillations ?? 0;
-      elLargeJumps.textContent = m.largeJumps ?? 0;
-    }
-
-    // Sync state indicator from storage (catches implicit triggers)
-    const mode = res.mode || "baseline";
-    const userState = res.userState || null;
-    const stateSource = res.stateSource || null;
-
-    if (mode === "adaptive" && !toggle.checked) {
-      toggle.checked = true;
-      updateLabels("adaptive");
-    } else if (mode === "baseline" && toggle.checked) {
-      toggle.checked = false;
-      updateLabels("baseline");
-    }
-
-    updateStateIndicator(userState, stateSource);
-  });
-}
-
-function formatElapsed(sec) {
-  if (sec < 60) return sec + "s";
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}m ${s}s`;
-}
-
-setInterval(pollMetrics, 600);
-pollMetrics();
+// Initial render
+renderSelectionPreview();
+renderAudioStatus();
+refreshApplied();

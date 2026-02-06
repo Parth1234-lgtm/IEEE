@@ -19,12 +19,35 @@ def derive_accessibility_hints(signals: Dict) -> List[str]:
     """
     hints = []
 
-    if signals.get("misclick_count", 0) >= 5:
+    # Prefer schema-aligned fields (schemas.py InteractionSignals)
+    if signals.get("constant_mouse_clicking") is True:
         hints.append("possible_motor_difficulty")
 
-    if signals.get("zoom_count", 0) >= 3:
+    if signals.get("frequent_zooming") is True:
         hints.append("possible_low_vision")
 
+    # long_pauses / idle_time are floats (seconds)
+    try:
+        if float(signals.get("long_pauses") or 0) >= 15:
+            hints.append("possible_cognitive_load")
+    except Exception:
+        pass
+
+    if signals.get("scroll_erratic") is True:
+        hints.append("possible_cognitive_load")
+
+    try:
+        if float(signals.get("idle_time") or 0) >= 20:
+            hints.append("possible_cognitive_load")
+    except Exception:
+        pass
+
+    # Backwards-compat / non-schema fields (ignored by schema validation on ingress,
+    # but safe here if present from older clients)
+    if signals.get("misclick_count", 0) >= 5:
+        hints.append("possible_motor_difficulty")
+    if signals.get("zoom_count", 0) >= 3:
+        hints.append("possible_low_vision")
     if signals.get("long_pause_seconds", 0) >= 15:
         hints.append("possible_cognitive_load")
 

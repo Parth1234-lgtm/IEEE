@@ -1,5 +1,6 @@
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from schemas import RequestSchema, ResponseSchema
 from pipeline import handle_request
 
@@ -7,6 +8,16 @@ app = FastAPI(
     title="Adaptive Accessibility Backend",
     description="Backend API for real-time UI adaptation and multimodal content transformation",
     version="1.0.0"
+)
+
+# Allow extension (and local tools) to call the API via fetch.
+# This is intentionally permissive for localhost development.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.post("/process", response_model=ResponseSchema)

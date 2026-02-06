@@ -1,38 +1,50 @@
+import base64
+import os
+import tempfile
 import whisper
 import torch
-import tempfile
-import base64
 
 MODEL_NAME = "base"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 model = whisper.load_model(MODEL_NAME).to(DEVICE)
 
+def audio_to_text(base64_audio: str) -> str:
+    if not base64_audio:
+        return ""
 
-def audio_to_text(base64_audio:str)->str:
-    # 1.Decode base64
+    # Strip data URL prefix if present
+    if "," in base64_audio:
+        base64_audio = base64_audio.split(",")[1]
+
+    # Fix base64 padding
+    missing_padding = len(base64_audio) % 4
+    if missing_padding:
+        base64_audio += "=" * (4 - missing_padding)
+
     audio_bytes = base64.b64decode(base64_audio)
 
-    # 2.write temp wav file(as whisper access files in ur hard drive so just create a temp file no need ot store data)
-    with tempfile.NamedTemporaryFile(suffix=".wav",delete=True) as tmp: # as opened with with and deleteis true automaticlaly deletes temp file form harddisk
+    # ✅ FRONTEND SENDS WAV → SAVE AS WAV
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp.write(audio_bytes)
-        tmp.flush()
+        tmp_path = tmp.name
 
-        #3.load+preprocess audio
-        audio=whisper.load_audio(tmp.name)
-        audio=whisper.pad_or_trim(audio)
+    try:
+        audio = whisper.load_audio(tmp_path)
+        audio = whisper.pad_or_trim(audio)
 
-        mel=whisper.log_mel_spectrogram(audio).to(model.device)
-        """gives a spectogram ,frequency domained signal using fourier tarnsform as 
-        model understand these better rather then these raw waveforms """
+        mel = whisper.log_mel_spectrogram(audio).to(model.device)
 
-        #4.decode
-        options=whisper.DecodingOptions(fp16=(DEVICE=="cuda"))
-        result = whisper.decode(model, mel, options)
+        result = whisper.decode(
+            model,
+            mel,
+            whisper.DecodingOptions(fp16=(DEVICE == "cuda"))
+        )
 
-    return result.text
-        
-    
-        
+        return result.text
 
-
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass

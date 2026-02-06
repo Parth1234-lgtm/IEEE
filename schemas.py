@@ -71,5 +71,3 @@ class ResponseSchema(BaseModel):
     mode: Literal["apply", "suggest"]
     ui_actions: UIActions
     content_actions: ContentActions
-    reason: str
-    confidence: float

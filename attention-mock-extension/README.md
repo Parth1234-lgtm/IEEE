@@ -7,7 +7,8 @@ No backend, no API keys, no frameworks. Fully local.
 
 ---
 
-## Folder Structure
+## Folder Structure is here
+
 
 ```
 attention-mock-extension/
